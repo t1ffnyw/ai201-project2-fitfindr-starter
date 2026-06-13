@@ -18,6 +18,8 @@ Usage (once implemented):
     print(result["error"])   # None on success
 """
 
+import re
+
 from tools import search_listings, suggest_outfit, create_fit_card
 
 
@@ -43,6 +45,28 @@ def _new_session(query: str, wardrobe: dict) -> dict:
         "fit_card": None,            # string returned by create_fit_card
         "error": None,               # set if the interaction ended early
     }
+
+
+# ── query parsing ─────────────────────────────────────────────────────────────
+
+def _parse_query(query: str) -> dict:
+    """Extract description, size, and max_price from a natural language query."""
+    size = None
+    max_price = None
+
+    size_match = re.search(r'\bsize\s+([A-Z0-9/.]+)\b', query, re.IGNORECASE)
+    if size_match:
+        size = size_match.group(1)
+
+    price_match = re.search(r'under\s+\$(\d+(?:\.\d+)?)', query, re.IGNORECASE)
+    if price_match:
+        max_price = float(price_match.group(1))
+
+    description = re.sub(r'\bsize\s+[A-Z0-9/.]+\b', '', query, flags=re.IGNORECASE)
+    description = re.sub(r'under\s+\$\d+(?:\.\d+)?', '', description, flags=re.IGNORECASE)
+    description = re.sub(r'\s+', ' ', description).strip()
+
+    return {"description": description, "size": size, "max_price": max_price}
 
 
 # ── planning loop ─────────────────────────────────────────────────────────────
@@ -92,9 +116,32 @@ def run_agent(query: str, wardrobe: dict) -> dict:
     Before writing code, complete the Planning Loop and State Management sections
     of planning.md — your implementation should match what you described there.
     """
-    # TODO: implement the planning loop
     session = _new_session(query, wardrobe)
-    session["error"] = "Planning loop not yet implemented."
+
+    parsed = _parse_query(query)
+    session["parsed"] = parsed
+
+    results = search_listings(
+        parsed["description"],
+        size=parsed["size"],
+        max_price=parsed["max_price"],
+    )
+    session["search_results"] = results
+
+    if not results:
+        session["error"] = "No matching items found."
+        return session
+
+    session["selected_item"] = results[0]
+
+    session["outfit_suggestion"] = suggest_outfit(
+        session["selected_item"], session["wardrobe"]
+    )
+
+    session["fit_card"] = create_fit_card(
+        session["outfit_suggestion"], session["selected_item"]
+    )
+
     return session
 
 
