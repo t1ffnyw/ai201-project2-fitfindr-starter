@@ -69,8 +69,35 @@ def search_listings(
 
     Before writing code, fill in the Tool 1 section of planning.md.
     """
-    # Replace this with your implementation
-    return []
+    listings = load_listings()
+
+    filtered = []
+    for item in listings:
+        if max_price is not None and item["price"] > max_price:
+            continue
+        if size is not None and size.lower() not in item["size"].lower():
+            continue
+        filtered.append(item)
+
+    keywords = description.lower().split()
+
+    scored = []
+    for item in filtered:
+        searchable = " ".join([
+            item["title"],
+            item["description"],
+            item["category"],
+            " ".join(item.get("style_tags", [])),
+            " ".join(item.get("colors", [])),
+            item.get("brand") or "",
+        ]).lower()
+
+        score = sum(1 for kw in keywords if kw in searchable)
+        if score > 0:
+            scored.append((score, item))
+
+    scored.sort(key=lambda x: x[0], reverse=True)
+    return [item for _, item in scored]
 
 
 # ── Tool 2: suggest_outfit ────────────────────────────────────────────────────
@@ -100,8 +127,59 @@ def suggest_outfit(new_item: dict, wardrobe: dict) -> str:
 
     Before writing code, fill in the Tool 2 section of planning.md.
     """
-    # Replace this with your implementation
-    return ""
+    client = _get_groq_client()
+
+    item_details = (
+        f"New item: {new_item['title']}\n"
+        f"Category: {new_item['category']}\n"
+        f"Colors: {', '.join(new_item.get('colors', []))}\n"
+        f"Style: {', '.join(new_item.get('style_tags', []))}\n"
+        f"Description: {new_item['description']}"
+    )
+
+    if not wardrobe.get("items"):
+        user_prompt = (
+            f"{item_details}\n\n"
+            "The user has no wardrobe items yet. Suggest what kinds of pieces "
+            "(tops, bottoms, shoes, accessories) would pair well with this item "
+            "and what overall vibe or aesthetic it fits."
+        )
+    else:
+        wardrobe_lines = []
+        for w in wardrobe["items"]:
+            wardrobe_lines.append(
+                f"- {w['name']} ({w['category']}, "
+                f"colors: {', '.join(w.get('colors', []))}, "
+                f"style: {', '.join(w.get('style_tags', []))})"
+            )
+        wardrobe_text = "\n".join(wardrobe_lines)
+
+        user_prompt = (
+            f"{item_details}\n\n"
+            f"User's wardrobe:\n{wardrobe_text}\n\n"
+            "Suggest 1-2 complete outfits using the new item and specific "
+            "pieces from the wardrobe. Each outfit needs at least a top, "
+            "bottom, and shoes."
+        )
+
+    response = client.chat.completions.create(
+        model="llama-3.3-70b-versatile",
+        messages=[
+            {
+                "role": "system",
+                "content": (
+                    "You are a fashion stylist specializing in secondhand and "
+                    "thrifted fashion. Suggest complete outfits with at minimum "
+                    "a top, bottom, and shoes. Be specific about which pieces to "
+                    "use and describe the overall vibe."
+                ),
+            },
+            {"role": "user", "content": user_prompt},
+        ],
+        temperature=0.7,
+    )
+
+    return response.choices[0].message.content
 
 
 # ── Tool 3: create_fit_card ───────────────────────────────────────────────────
@@ -133,5 +211,36 @@ def create_fit_card(outfit: str, new_item: dict) -> str:
 
     Before writing code, fill in the Tool 3 section of planning.md.
     """
-    # Replace this with your implementation
-    return ""
+    if not outfit or not outfit.strip():
+        return "Error: No outfit provided to create a fit card."
+
+    client = _get_groq_client()
+
+    user_prompt = (
+        f"Outfit description:\n{outfit}\n\n"
+        f"Thrifted item: {new_item['title']}\n"
+        f"Price: ${new_item['price']}\n"
+        f"Platform: {new_item['platform']}\n\n"
+        "Write a 2-4 sentence Instagram/TikTok caption for this outfit. "
+        "Keep it casual and authentic like a real OOTD post — not a product "
+        "description. Mention the item name, price, and platform naturally "
+        "(once each). Capture the outfit vibe in specific terms."
+    )
+
+    response = client.chat.completions.create(
+        model="llama-3.3-70b-versatile",
+        messages=[
+            {
+                "role": "system",
+                "content": (
+                    "You are a Gen-Z fashion content creator writing short, "
+                    "shareable outfit captions. Be authentic, specific about "
+                    "the vibe, and keep it to 2-4 sentences. No hashtags."
+                ),
+            },
+            {"role": "user", "content": user_prompt},
+        ],
+        temperature=0.9,
+    )
+
+    return response.choices[0].message.content
